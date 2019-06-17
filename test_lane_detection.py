@@ -17,6 +17,7 @@ thresholds = {
 
 counter = 0
 
+
 def find_lane_pixels(binary_warped):
     out_img = np.dstack((binary_warped, binary_warped, binary_warped))
 
@@ -53,7 +54,7 @@ def find_lane_pixels(binary_warped):
     right_lane_inds = []
 
     # Step through the windows one by one
-    #lefty = []
+    left_recenters, right_recenters = 0, 0
     for window in range(nwindows):
         # Identify window boundaries in x and y (and right and left)
         win_y_low = binary_warped.shape[0] - (window + 1) * window_height
@@ -62,12 +63,6 @@ def find_lane_pixels(binary_warped):
         win_xleft_high = leftx_current + margin
         win_xright_low = rightx_current - margin
         win_xright_high = rightx_current + margin
-
-        # Draw the windows on the visualization image
-        cv2.rectangle(out_img, (win_xleft_low, win_y_low),
-                      (win_xleft_high, win_y_high), (0, 255, 0), 2)
-        cv2.rectangle(out_img, (win_xright_low, win_y_low),
-                      (win_xright_high, win_y_high), (0, 255, 0), 2)
 
         # Identify the nonzero pixels in x and y within the window #
         good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) &
@@ -79,24 +74,32 @@ def find_lane_pixels(binary_warped):
 
         # If you found > minpix pixels, recenter next window on their mean position
         if len(good_left_inds) > minpix:
-            left_lane_inds.append(good_left_inds)
+            cv2.rectangle(out_img, (win_xleft_low, win_y_low),
+                          (win_xleft_high, win_y_high), (0, 255, 0), 2)
             leftx_current = np.int(np.mean(nonzerox[good_left_inds]))
-            #left_lane_inds.append(np.mean(nonzerox[good_left_inds]))
-            #lefty.append(win_y_low + (window_height / 2))
+            left_lane_inds.append(good_left_inds)
+            left_recenters += 1
         if len(good_right_inds) > minpix:
-            right_lane_inds.append(good_right_inds)
+            cv2.rectangle(out_img, (win_xright_low, win_y_low),
+                          (win_xright_high, win_y_high), (0, 255, 0), 2)
             rightx_current = np.int(np.mean(nonzerox[good_right_inds]))
+            right_lane_inds.append(good_right_inds)
+            right_recenters += 1
 
-    # Concatenate the arrays of indices (previously was a list of lists of pixels)
-    left_lane_inds = np.concatenate(left_lane_inds)
-    #right_lane_inds = np.concatenate(right_lane_inds)
+    print("The number of recenters for this image: {}, {}".format(
+        left_recenters, right_recenters))
 
     # Extract left and right line pixel positions
-    leftx = nonzerox[left_lane_inds]
-    #leftx = left_lane_inds
-    lefty = nonzeroy[left_lane_inds]
-    rightx = nonzerox[right_lane_inds]
-    righty = nonzeroy[right_lane_inds]
+    leftx, lefty, rightx, righty = None, None, None, None
+    if left_recenters > 5:
+        left_lane_inds = np.concatenate(left_lane_inds)
+        leftx = nonzerox[left_lane_inds]
+        lefty = nonzeroy[left_lane_inds]
+
+    if right_recenters > 5:
+        right_lane_inds = np.concatenate(right_lane_inds)
+        rightx = nonzerox[right_lane_inds]
+        righty = nonzeroy[right_lane_inds]
 
     return leftx, lefty, rightx, righty, out_img
 
@@ -106,17 +109,26 @@ def fit_polynomial(binary_warped):
     leftx, lefty, rightx, righty, out_img = find_lane_pixels(binary_warped)
 
     # Fit a second order polynomial to each using `np.polyfit`
-    left_fit = np.polyfit(lefty, leftx, 2)
-    right_fit = np.polyfit(righty, rightx, 2)
+    left_fit, right_fit = None, None
+    if leftx is not None and lefty is not None:
+        left_fit = np.polyfit(lefty, leftx, 2)
+
+    if rightx is not None and righty is not None:
+        right_fit = np.polyfit(righty, rightx, 2)
 
     ## Generate x and y values for plotting
     ploty = np.linspace(0, binary_warped.shape[0] - 1, binary_warped.shape[0])
-    left_fitx = left_fit[0] * ploty**2 + left_fit[1] * ploty + left_fit[2]
-    right_fitx = right_fit[0] * ploty**2 + right_fit[1] * ploty + right_fit[2]
+    left_fitx, right_fitx = None, None
+    if left_fit is not None:
+        left_fitx = left_fit[0] * ploty**2 + left_fit[1] * ploty + left_fit[2]
+        for x, y in zip(left_fitx, ploty):
+            cv2.circle(out_img, (int(x), int(y)), 1, (0, 0, 255))
 
-    # Plot the points.
-    for x, y in zip(left_fitx, ploty):
-        cv2.circle(out_img, (int(x), int(y)), 1, (0, 0, 255))
+    if right_fit is not None:
+        right_fitx = right_fit[0] * ploty**2 + right_fit[
+            1] * ploty + right_fit[2]
+        for x, y in zip(right_fitx, ploty):
+            cv2.circle(out_img, (int(x), int(y)), 1, (0, 0, 255))
 
     return out_img, ploty, left_fitx, right_fitx
 
@@ -126,7 +138,7 @@ def process_images(msg):
     # Convert the BGRA image to BGR.
     image = np.frombuffer(msg.raw_data, dtype=np.dtype('uint8'))
     image = np.reshape(image, (msg.height, msg.width, 4))[:, :, :3]
-    cv2.imshow("Image", image)
+    cv2.imwrite('test_images/image{}.png'.format(counter), image)
 
     # Convert the image from BGR to HLS.
     s_channel = cv2.cvtColor(image, cv2.COLOR_BGR2HLS)[:, :, 2]
@@ -163,40 +175,38 @@ def process_images(msg):
     # Convert the image to a bird's eye view.
     #source_points = np.float32([[30, msg.height], [353, 332], [440, 332],
     #                            [780, msg.height]])
-    source_points = np.float32([[163, 500], [353, 332], [440, 332], [636, 500]])
-    offset = 100
-    #destination_points = np.float32([[offset, msg.height],
-    #                                 [offset, msg.height // 2],
-    #                                 [msg.width - offset, msg.height // 2],
-    #                                 [msg.width - offset, msg.height]])
-    destination_points = np.float32([[offset, msg.height],
-                                     [offset, 0],
-                                     [msg.width - offset, 0],
+    #source_points = np.float32([[163, 500], [353, 332], [440, 332], [636, 500]])
+    #source_points = np.float32([[0, msg.height], [352, 323], [404, 323], [725, msg.height]])
+    #source_points = np.float32([[117, 500], [338, 332], [417, 332], [616, 500]])
+    #source_points = np.float32([[153, 500], [353, 332], [440, 332], [636, 500]])
+    #source_points = np.float32([[100, msg.height], [353, 332], [440, 332],
+    #                            [700, msg.height]])
+    source_points = np.float32([[80, msg.height], [327, 368], [465, 368], [688, msg.height]])
+    offset = 150
+    destination_points = np.float32([[offset, msg.height], [offset, 50],
+                                     [msg.width - offset, 50],
                                      [msg.width - offset, msg.height]])
     M = cv2.getPerspectiveTransform(source_points, destination_points)
     M_inv = cv2.getPerspectiveTransform(destination_points, source_points)
-    warped_image = cv2.warpPerspective(final_image, M, (msg.width, msg.height))
+    warped_image = cv2.warpPerspective(sxbinary * 255, M,
+                                       (msg.width, msg.height))
 
     # Fit the polynomial.
     fit_img, ploty, left_fit, right_fit = fit_polynomial(warped_image)
     cv2.imshow("Fitted image", fit_img)
-    #filled_image = np.zeros_like(warped_image).astype(np.uint8)
-    #color_filled = np.dstack((filled_image, filled_image, filled_image))
-    #left_points = np.array([np.transpose(np.vstack([left_fit, ploty]))])
-    #right_points = np.array(
-    #    [np.flipud(np.transpose(np.vstack([right_fit, ploty])))])
-    #points = np.hstack((left_points, right_points))
-    #cv2.fillPoly(color_filled, np.int_([points]), (0, 255, 0))
-    #unwarped = cv2.warpPerspective(color_filled, M_inv,
-    #                               (msg.width, msg.height))
-    #result = cv2.addWeighted(image, 1, unwarped, 0.3, 0)
-
-    #cv2.imshow(
-    #    "Fitted Image",
-    #    cv2.addWeighted(np.dstack((warped_image, warped_image, warped_image)),
-    #                    1, color_filled, 0.3, 0))
-    #cv2.imwrite('warped/image{}.png'.format(counter), warped_image)
-    #cv2.imshow("Warped Image", warped_image)
+    result = image
+    if left_fit is not None and right_fit is not None:
+        filled_image = np.zeros_like(warped_image).astype(np.uint8)
+        color_filled = np.dstack((filled_image, filled_image, filled_image))
+        left_points = np.array([np.transpose(np.vstack([left_fit, ploty]))])
+        right_points = np.array(
+            [np.flipud(np.transpose(np.vstack([right_fit, ploty])))])
+        points = np.hstack((left_points, right_points))
+        cv2.fillPoly(color_filled, np.int_([points]), (0, 255, 0))
+        unwarped = cv2.warpPerspective(color_filled, M_inv,
+                                       (msg.width, msg.height))
+        result = cv2.addWeighted(image, 1, unwarped, 0.3, 0)
+    cv2.imshow("Unwarped", result)
     counter += 1
 
 
@@ -267,7 +277,7 @@ def main():
     vehicle = spawn_driving_vehicle(client, world)
 
     # Spawn the camera and register a function to listen to the images.
-    camera = spawn_rgb_camera(world, carla.Location(x=2.0, y=0.0, z=1.4),
+    camera = spawn_rgb_camera(world, carla.Location(x=2.0, y=0.0, z=1.8),
                               carla.Rotation(roll=0, pitch=0, yaw=0), vehicle)
     camera.listen(process_images)
 
