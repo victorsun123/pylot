@@ -22,22 +22,25 @@ def find_lane_pixels(binary_warped):
     out_img = np.dstack((binary_warped, binary_warped, binary_warped))
 
     # Find the peaks of the left and right lanes.
-    histogram = np.sum(binary_warped[binary_warped.shape[0] // 2:, :], axis=0)
+    histogram = np.sum(binary_warped[binary_warped.shape[0] // 4:, :], axis=0)
     midpoint = np.int(histogram.shape[0] // 2)
-    peaks = scipy.signal.find_peaks(histogram, height=10)[0]
-    if len(peaks) > 1:
-        leftx_base, rightx_base = peaks[0], peaks[-1]
+    left_peaks, right_peaks = scipy.signal.find_peaks(histogram[:midpoint], height=10)[0], scipy.signal.find_peaks(histogram[midpoint:], height=10)[0]
+    if len(left_peaks) >= 1:
+        leftx_base = left_peaks[-1]
     else:
         leftx_base = np.argmax(histogram[:midpoint])
-        rightx_base = np.argmax(histogram[midpoint:]) + midpoint
+    if len(right_peaks) >= 1:
+        rightx_base = right_peaks[0] + midpoint
+    else:
+        rightx_base = np.argmax(histogram[midpoint:]) + midpoint 
 
     # HYPERPARAMETERS
     # Choose the number of sliding windows
     nwindows = 20
     # Set the width of the windows +/- margin
-    margin = 50
+    margin = 30
     # Set minimum number of pixels found to recenter window
-    minpix = 200
+    minpix = 150
 
     # Set height of windows - based on nwindows above and image shape
     window_height = np.int(binary_warped.shape[0] // nwindows)
@@ -85,9 +88,6 @@ def find_lane_pixels(binary_warped):
             rightx_current = np.int(np.mean(nonzerox[good_right_inds]))
             right_lane_inds.append(good_right_inds)
             right_recenters += 1
-
-    print("The number of recenters for this image: {}, {}".format(
-        left_recenters, right_recenters))
 
     # Extract left and right line pixel positions
     leftx, lefty, rightx, righty = None, None, None, None
@@ -138,13 +138,24 @@ def process_images(msg):
     # Convert the BGRA image to BGR.
     image = np.frombuffer(msg.raw_data, dtype=np.dtype('uint8'))
     image = np.reshape(image, (msg.height, msg.width, 4))[:, :, :3]
-    cv2.imwrite('test_images/image{}.png'.format(counter), image)
+    cv2.imshow("Base Image", image)
+    cv2.imwrite('test_images/image{:04}.png'.format(counter), image)
+    counter += 1
+    return
 
     # Convert the image from BGR to HLS.
     s_channel = cv2.cvtColor(image, cv2.COLOR_BGR2HLS)[:, :, 2]
 
     # Apply the Sobel operator in the x-direction.
     gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    canny = cv2.Canny(gray_image, 100, 120)
+    line_img = np.zeros_like(canny, dtype=np.uint8)
+    lines = cv2.HoughLinesP(canny, rho=1, theta=np.pi/180.0, threshold=40, minLineLength=10, maxLineGap=30)
+    for line in lines:
+        for x1, y1, x2, y2 in line:
+            cv2.line(line_img, (x1, y1), (x2, y2), color=(255, 0, 0), thickness=2)
+    #cv2.imshow("Canny", canny)
+    #cv2.imshow("line_img", line_img)
     sobelx = cv2.Sobel(gray_image, cv2.CV_64F, 1, 0, ksize=5)
 
     # Apply the Sobel operator in the y-direction.
@@ -181,8 +192,10 @@ def process_images(msg):
     #source_points = np.float32([[153, 500], [353, 332], [440, 332], [636, 500]])
     #source_points = np.float32([[100, msg.height], [353, 332], [440, 332],
     #                            [700, msg.height]])
-    source_points = np.float32([[80, msg.height], [327, 368], [465, 368], [688, msg.height]])
-    offset = 150
+    #source_points = np.float32([[80, msg.height], [327, 368], [465, 368], [688, msg.height]])
+    #source_points = np.float32([[139, msg.height], [357, 350], [457, 350], [757, msg.height]])
+    source_points = np.float32([[475, msg.height], [600, 370], [798, 370], [928, msg.height]])
+    offset = 400
     destination_points = np.float32([[offset, msg.height], [offset, 50],
                                      [msg.width - offset, 50],
                                      [msg.width - offset, msg.height]])
@@ -190,6 +203,7 @@ def process_images(msg):
     M_inv = cv2.getPerspectiveTransform(destination_points, source_points)
     warped_image = cv2.warpPerspective(sxbinary * 255, M,
                                        (msg.width, msg.height))
+    cv2.imshow("Warped Image", warped_image)
 
     # Fit the polynomial.
     fit_img, ploty, left_fit, right_fit = fit_polynomial(warped_image)
@@ -264,6 +278,8 @@ def spawn_rgb_camera(world, location, rotation, vehicle):
         An instance of the camera spawned in the world.
     """
     camera_bp = world.get_blueprint_library().find('sensor.camera.rgb')
+    camera_bp.set_attribute('image_size_x', '1280')
+    camera_bp.set_attribute('image_size_y', '720')
     transform = carla.Transform(location=location, rotation=rotation)
     return world.spawn_actor(camera_bp, transform, attach_to=vehicle)
 
