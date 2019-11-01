@@ -145,7 +145,7 @@ class CarlaScenarioOperator(Op):
         # The dataflow graph needs to give enough time for downstream
         # operators to register callbacks, and register their assets before
         # ticking the simulation.
-        time.sleep(20)
+        time.sleep(10)
         self._world.tick()
         time.sleep(5)
         self._world.on_tick(self.publish_world_data)

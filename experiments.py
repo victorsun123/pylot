@@ -1,6 +1,8 @@
+import os
 from collections import namedtuple
 
 import carla
+import logging
 from absl import app
 from absl import flags
 
@@ -14,6 +16,7 @@ from pylot.simulation.perfect_pedestrian_detector_operator import \
         PerfectPedestrianDetectorOperator
 from pylot.simulation.carla_utils import get_world
 from pylot.simulation.perfect_planning_operator import PerfectPlanningOperator
+from pylot.perception.detection.detection_operator import DetectionOperator
 
 FLAGS = flags.FLAGS
 
@@ -114,7 +117,8 @@ def set_asynchronous_mode(world):
     world.apply_settings(settings)
 
 
-def add_pedestrian_detector_operator(graph, camera_setup):
+def add_perfect_pedestrian_detector_operator(graph, camera_setup,
+                                             output_stream_name):
     """ Adds the perfect pedestrian detector operator to the graph, and returns
     the added operator.
 
@@ -122,6 +126,8 @@ def add_pedestrian_detector_operator(graph, camera_setup):
         graph: The erdos.graph instance to add the operator to.
         camera_setup: The camera setup to use for projecting the pedestrians
             onto the view of the camera.
+        output_stream_name: The name of the output stream where the results are
+            published.
     Returns:
         The operator instance depicting the PerfectPedestrianOperator returned
         by the graph add method.
@@ -130,26 +136,79 @@ def add_pedestrian_detector_operator(graph, camera_setup):
         PerfectPedestrianDetectorOperator,
         name='perfect_pedestrian',
         init_args={
-            'output_stream_name': 'perfect_pedestrian_bboxes',
+            'output_stream_name': output_stream_name,
             'camera_setup': camera_setup,
             'flags': FLAGS,
             'log_file_name': FLAGS.log_file_name
         },
-        setup_args={'output_stream_name': 'perfect_pedestrian_bboxes'})
+        setup_args={'output_stream_name': output_stream_name})
     return pedestrian_detector_operator
 
 
-def add_planning_operator(graph, destination):
-    perfect_planning_operator = graph.add(PerfectPlanningOperator,
-                                          name='perfect_planning',
-                                          init_args={
-                                              'goal': destination,
-                                              'flags': FLAGS,
-                                              'log_file_name':
-                                              FLAGS.log_file_name
-                                          })
-    return perfect_planning_operator
+def add_planning_operator(graph, destination, behavior, model_path, speed):
+    """ Adds the perfect planning operator to the graph, and returns the added
+    operator.
 
+    Args:
+        graph: The erdos.graph instance to add the operator to.
+        destination: The destination to plan until.
+        behavior: The behavior that the planning operator needs to exhibit in
+            case of emergencies.
+        model_path: The path of the model to be run at the perception operator.
+    Returns:
+        The operator instance depicting the PerfectPlanningOperator returned
+        by the graph add method.
+    """
+    planning_operator = graph.add(
+        PerfectPlanningOperator,
+        name='perfect_planning',
+        init_args={
+            'goal':
+            destination,
+            'behavior':
+            behavior,
+            'flags':
+            FLAGS,
+            'log_file_name':
+            FLAGS.log_file_name,
+            'csv_file_name':
+            'results/{model_name}/{model_name}_{speed}_distance.csv'.format(
+                model_name=model_path.split('/')[-2], speed=speed),
+        })
+    return planning_operator
+
+
+def add_model_perception_operator(graph, output_stream_name, model_path,
+                                  speed):
+    """ Adds the Perception operator to the graph that runs a tensorflow model.
+
+    Args:
+        graph: The erdos.graph instance to add the operator to.
+        output_stream_name: The name of the output stream where the results
+        are published.
+        model_path: The path of the model to be run at the perception operator.
+    Returns:
+        The operator instance depicting the PerceptionOperator returned by the
+        graph.add method.
+    """
+    perception_operator = graph.add(
+        DetectionOperator,
+        name='detection_operator',
+        init_args={
+            'output_stream_name':
+            output_stream_name,
+            'model_path':
+            model_path,
+            'flags':
+            FLAGS,
+            'log_file_name':
+            FLAGS.log_file_name,
+            'csv_file_name':
+            'results/{model_name}/{model_name}_{speed}_runtimes.csv'.format(
+                model_name=model_path.split('/')[-2], speed=speed),
+        },
+        setup_args={'output_stream_name': output_stream_name})
+    return perception_operator
 
 
 def main(args):
@@ -159,6 +218,13 @@ def main(args):
                               FLAGS.carla_timeout)
     if client is None or world is None:
         raise ValueError("There was an issue connecting to the simulator.")
+
+    if not os.path.exists('./results'):
+        os.mkdir('results')
+
+    if not os.path.exists('./results/{}'.format(
+            FLAGS.model_path.split('/')[-2])):
+        os.mkdir('results/{}'.format(FLAGS.model_path.split('/')[-2]))
 
     try:
         # Define the ERDOS graph.
@@ -172,17 +238,31 @@ def main(args):
         graph.connect([carla_operator],
                       [rgb_camera.instance, depth_camera.instance])
 
-        # Add a perfect pedestrian detector operator.
-        object_detector_operator = add_pedestrian_detector_operator(
-            graph, rgb_camera.camera_setup)
-        graph.connect([carla_operator, depth_camera.instance],
-                      [object_detector_operator])
+        perception_output_stream = 'perfect_pedestrian_bboxes'
+        object_detector_operator = None
+        if FLAGS.use_perfect_perception:
+            # Add a perfect pedestrian detector operator.
+            object_detector_operator = add_perfect_pedestrian_detector_operator(
+                graph, rgb_camera.camera_setup, perception_output_stream)
+            graph.connect([carla_operator, depth_camera.instance],
+                          [object_detector_operator])
+        else:
+            # Add the model-based perception operator.
+            object_detector_operator = add_model_perception_operator(
+                graph, perception_output_stream, FLAGS.model_path,
+                FLAGS.target_speed)
+            graph.connect([rgb_camera.instance], [object_detector_operator])
 
         # Add a perfect planning operator.
         perfect_planning_operator = add_planning_operator(
-            graph, carla.Location(x=17.73, y=327.07, z=0.5))
-        graph.connect([carla_operator], [perfect_planning_operator])
+            graph, carla.Location(x=17.73, y=327.07, z=0.5), FLAGS.plan,
+            FLAGS.model_path, FLAGS.target_speed)
+        graph.connect([carla_operator, object_detector_operator],
+                      [perfect_planning_operator])
         graph.connect([perfect_planning_operator], [carla_operator])
+
+        # Change the logging level to warning.
+        # logging.disable(logging.INFO)
 
         graph.execute(FLAGS.framework)
     except KeyboardInterrupt:

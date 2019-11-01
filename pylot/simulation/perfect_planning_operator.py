@@ -6,7 +6,7 @@ import numpy as np
 from pid_controller.pid import PID
 
 from erdos.op import Op
-from erdos.utils import setup_logging
+from erdos.utils import setup_logging, setup_csv_logging
 
 import pylot.utils
 from pylot.control.messages import ControlMessage
@@ -17,17 +17,26 @@ from pylot.planning.utils import get_waypoint_vector_and_angle
 
 
 class PerfectPlanningOperator(Op):
-    def __init__(self, name, goal, flags, log_file_name=None):
+    def __init__(self,
+                 name,
+                 goal,
+                 behavior,
+                 flags,
+                 log_file_name=None,
+                 csv_file_name=None):
         """ Initializes the operator with the given information.
 
         Args:
             name: The name to be used for the operator in the dataflow graph.
             goal: The final location used to plan until.
+            behavior: The behavior to show in case of emergencies.
             flags: The command line flags passed to the driver.
             log_file_name: The file name to log the intermediate messages to.
+            csv_file_name: The file name to log the experimental results to.
         """
         super(PerfectPlanningOperator, self).__init__(name)
         self._logger = setup_logging(self.name, log_file_name)
+        self._csv_logger = setup_csv_logging(self.name + '-csv', csv_file_name)
         self._flags = flags
         self._goal = goal
 
@@ -42,6 +51,7 @@ class PerfectPlanningOperator(Op):
         self._lock = threading.Lock()
         self._can_bus_msgs = collections.deque()
         self._pedestrians = collections.deque()
+        self._obstacle_msgs = collections.deque()
 
         # PID Controller
         self._pid = PID(p=self._flags.pid_p,
@@ -49,13 +59,12 @@ class PerfectPlanningOperator(Op):
                         d=self._flags.pid_d)
 
         # Planning constants.
-        self.PLANNING_BEHAVIOR = 'swerve'
+        self.PLANNING_BEHAVIOR = behavior
         self.SPEED = self._flags.target_speed
-        self.DETECTION_DISTANCE = 18
+        self.DETECTION_DISTANCE = 12
         self.GOAL_DISTANCE = self.SPEED
         self.SAMPLING_DISTANCE = self.SPEED / 3
         self._goal_reached = False
-        self._in_swerve = False
 
     @staticmethod
     def setup_streams(input_streams):
@@ -64,9 +73,23 @@ class PerfectPlanningOperator(Op):
         input_streams.filter(
             pylot.utils.is_ground_pedestrians_stream).add_callback(
                 PerfectPlanningOperator.on_pedestrians_update)
+        input_streams.filter(pylot.utils.is_obstacles_stream).add_callback(
+            PerfectPlanningOperator.on_obstacle_update)
         input_streams.add_completion_callback(
             PerfectPlanningOperator.on_notification)
         return [pylot.utils.create_control_stream()]
+
+    def on_obstacle_update(self, msg):
+        """ Receives the message from the detector and adds it to the queue.
+
+        Args:
+            msg: The message received for the given timestamp.
+        """
+        self._logger.info(
+            "Received a detector update for the timestamp: {}".format(
+                msg.timestamp))
+        with self._lock:
+            self._obstacle_msgs.append(msg)
 
     def on_can_bus_update(self, msg):
         """ Receives the CAN Bus update and adds it to the queue of messages.
@@ -149,25 +172,46 @@ class PerfectPlanningOperator(Op):
             msg.timestamp))
         with self._lock:
             if not self.synchronize_msg_buffers(
-                    msg.timestamp, [self._can_bus_msgs, self._pedestrians]):
+                    msg.timestamp,
+                [self._can_bus_msgs, self._pedestrians, self._obstacle_msgs]):
                 self._logger.info("Could not synchronize the message buffers "
                                   "for the timestamp {}".format(msg.timestamp))
 
             can_bus_msg = self._can_bus_msgs.popleft()
             pedestrian_msg = self._pedestrians.popleft()
+            obstacle_msg = self._obstacle_msgs.popleft()
 
         # Assert that the timestamp of all the messages are the same.
-        assert (can_bus_msg.timestamp == pedestrian_msg.timestamp)
+        assert (can_bus_msg.timestamp == pedestrian_msg.timestamp ==
+                obstacle_msg.timestamp)
 
-        self._logger.info("Can Bus Message: {}, Pedestrian Message: {}".format(
-            can_bus_msg.timestamp, pedestrian_msg.timestamp))
+        self._logger.info(
+            "Can Bus Message: {}, Pedestrian Message: {}, Obstacle Message: {}"
+            .format(can_bus_msg.timestamp, pedestrian_msg.timestamp,
+                    obstacle_msg.timestamp))
         self._logger.info(
             "The vehicle is travelling at a speed of {} m/s.".format(
                 can_bus_msg.data.forward_speed))
 
+        # Heuristic to tell us how far away do we detect the pedestrian.
+        ego_location = to_carla_location(can_bus_msg.data.transform.location)
+        ego_wp = self._map.get_waypoint(ego_location)
+        for pedestrian in pedestrian_msg.pedestrians:
+            pedestrian_loc = to_carla_location(pedestrian.transform.location)
+            pedestrian_wp = self._map.get_waypoint(pedestrian_loc,
+                                                   project_to_road=False)
+            if pedestrian_wp and pedestrian_wp.road_id == ego_wp.road_id:
+                for obj in obstacle_msg.detected_objects:
+                    if obj.label == 'person':
+                        self._csv_logger.info(
+                            "Detected a person {}m away".format(
+                                pedestrian_loc.distance(ego_location)))
+                        self._csv_logger.info(
+                            "The vehicle is travelling at a speed of {} m/s.".
+                            format(can_bus_msg.data.forward_speed))
+
         # Figure out the location of the ego vehicle and compute the next
         # waypoint.
-        ego_location = to_carla_location(can_bus_msg.data.transform.location)
         if self._goal_reached or ego_location.distance(
                 self._goal) <= self.GOAL_DISTANCE:
             self.get_output_stream('control_stream').send(
@@ -187,15 +231,14 @@ class PerfectPlanningOperator(Op):
 
             if pedestrian_detected and self.PLANNING_BEHAVIOR == 'stop':
                 self.get_output_stream('control_stream').send(
-                    ControlMessage(0.0, 0.0, 1.0, True, False,
-                                   msg.timestamp))
+                    ControlMessage(0.0, 0.0, 1.0, True, False, msg.timestamp))
                 return
 
             # Get the waypoint that is SAMPLING_DISTANCE away.
             wp_steer = self._map.get_waypoint(ego_location - carla.Location(
                 x=self.SAMPLING_DISTANCE))
 
-
+            in_swerve = False
             if pedestrian_detected:
                 # If a pedestrian was detected, make sure we're driving on the
                 # wrong direction.
@@ -206,7 +249,9 @@ class PerfectPlanningOperator(Op):
                 if np.dot(ego_vehicle_fwd, waypoint_fwd) > 0:
                     # We're not driving in the wrong direction, get left
                     # lane waypoint.
-                    wp_steer = wp_steer.get_left_lane()
+                    if wp_steer.get_left_lane():
+                        wp_steer = wp_steer.get_left_lane()
+                        in_swerve = True
                 else:
                     # We're driving in the right direction, continue driving.
                     pass
@@ -219,7 +264,9 @@ class PerfectPlanningOperator(Op):
                 if np.dot(ego_vehicle_fwd, waypoint_fwd) < 0:
                     # We're driving in the wrong direction, get the left lane
                     # waypoint.
-                    wp_steer = wp_steer.get_left_lane()
+                    if wp_steer.get_left_lane():
+                        wp_steer = wp_steer.get_left_lane()
+                        in_swerve = True
                 else:
                     # We're driving in the right direction, continue driving.
                     pass
@@ -233,8 +280,10 @@ class PerfectPlanningOperator(Op):
 
             current_speed = max(0, can_bus_msg.data.forward_speed)
             steer = self.__get_steer(wp_steer_angle)
+            # target_speed = self.SPEED if not in_swerve else self.SPEED / 5.0
+            target_speed = self.SPEED
             throttle, brake = self.__get_throttle_brake_without_factor(
-                current_speed, self.SPEED)
+                current_speed, target_speed)
 
             self.get_output_stream('control_stream').send(
                 ControlMessage(steer, throttle, brake, False, False,
