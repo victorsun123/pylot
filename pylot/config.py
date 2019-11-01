@@ -15,6 +15,10 @@ flags.DEFINE_bool('fail_on_message_loss', True,
 flags.DEFINE_bool('ground_agent_operator', True,
                   'True to use the ground truth controller')
 
+# Evaluation flags.
+flags.DEFINE_string('model_path', '', 'Path to the Model.')
+flags.DEFINE_string('plan', 'stop', 'Planning Behavior (stop/swerve)')
+
 # Sensors to enable.
 flags.DEFINE_bool('lidar', False, 'True to enable the lidar sensor')
 flags.DEFINE_bool('top_down_segmentation', False,
@@ -119,7 +123,7 @@ flags.DEFINE_float('pid_d', 0.0, 'PID d parameter')
 
 # Steering control parameters
 flags.DEFINE_float('default_throttle', 0.0, 'Default throttle')
-flags.DEFINE_float('throttle_max', 0.75, 'Max throttle')
+flags.DEFINE_float('throttle_max', 1.0, 'Max throttle')
 flags.DEFINE_integer(
     'target_speed', 10,
     'Target speed in m/s , could be controlled by the speed limit')
@@ -137,7 +141,7 @@ flags.DEFINE_integer('carla_timeout', 10,
 flags.DEFINE_bool('carla_synchronous_mode', True,
                   'Run Carla in synchronous mode.')
 flags.DEFINE_integer('carla_town', 1, 'Sets which Carla town to use.')
-flags.DEFINE_integer('carla_fps', 10, 'Carla FPS; do not set bellow 10.')
+flags.DEFINE_integer('carla_fps', 20, 'Carla FPS; do not set bellow 10.')
 flags.DEFINE_float('carla_step_frequency', -1,
                    'Target frequency of sending control commands. -1 if '
                    'commands should be applied as soon ASAP.')
@@ -151,9 +155,9 @@ flags.DEFINE_bool('carla_random_player_start', True,
                   'True to randomly assign a car to the player')
 flags.DEFINE_integer('carla_start_player_num', 0,
                      'Number of the assigned start player')
-flags.DEFINE_integer('carla_camera_image_width', 800,
+flags.DEFINE_integer('carla_camera_image_width', 1920,
                      'Carla camera image width')
-flags.DEFINE_integer('carla_camera_image_height', 600,
+flags.DEFINE_integer('carla_camera_image_height', 1080,
                      'Carla camera image height')
 flags.DEFINE_string('carla_replay_file', '', 'Path to the Carla log file')
 flags.DEFINE_float('carla_replay_start_time', 0.0,
