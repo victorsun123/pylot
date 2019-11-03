@@ -159,22 +159,19 @@ def add_planning_operator(graph, destination, behavior, model_path, speed):
         The operator instance depicting the PerfectPlanningOperator returned
         by the graph add method.
     """
-    planning_operator = graph.add(
-        PerfectPlanningOperator,
-        name='perfect_planning',
-        init_args={
-            'goal':
-            destination,
-            'behavior':
-            behavior,
-            'flags':
-            FLAGS,
-            'log_file_name':
-            FLAGS.log_file_name,
-            'csv_file_name':
-            'results/{model_name}/{model_name}_{speed}_distance.csv'.format(
-                model_name=model_path.split('/')[-2], speed=speed),
-        })
+    csv_file_name = None
+    if not FLAGS.use_perfect_perception:
+        csv_file_name = 'results/{model}/{model}_{speed}_distance.csv'.format(
+            model=model_path.split('/')[-2], speed=speed)
+    planning_operator = graph.add(PerfectPlanningOperator,
+                                  name='perfect_planning',
+                                  init_args={
+                                      'goal': destination,
+                                      'behavior': behavior,
+                                      'flags': FLAGS,
+                                      'log_file_name': FLAGS.log_file_name,
+                                      'csv_file_name': csv_file_name,
+                                  })
     return planning_operator
 
 
@@ -219,12 +216,13 @@ def main(args):
     if client is None or world is None:
         raise ValueError("There was an issue connecting to the simulator.")
 
-    if not os.path.exists('./results'):
-        os.mkdir('results')
+    if not FLAGS.use_perfect_perception:
+        if not os.path.exists('./results'):
+            os.mkdir('results')
 
-    if not os.path.exists('./results/{}'.format(
-            FLAGS.model_path.split('/')[-2])):
-        os.mkdir('results/{}'.format(FLAGS.model_path.split('/')[-2]))
+        if not os.path.exists('./results/{}'.format(
+                FLAGS.model_path.split('/')[-2])):
+            os.mkdir('results/{}'.format(FLAGS.model_path.split('/')[-2]))
 
     try:
         # Define the ERDOS graph.
@@ -267,9 +265,9 @@ def main(args):
         graph.execute(FLAGS.framework)
     except KeyboardInterrupt:
         set_asynchronous_mode(world)
-    except Exception as e:
+    except Exception:
         set_asynchronous_mode(world)
-        raise e
+        raise
 
 
 if __name__ == "__main__":
