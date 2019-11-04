@@ -9,7 +9,9 @@ import pylot.utils
 from pylot.perception.messages import DetectorMessage
 from pylot.simulation.utils import get_2d_bbox_from_3d_box
 from pylot.simulation.carla_utils import get_world
-from pylot.perception.detection.utils import DetectedObject
+from pylot.perception.detection.utils import DetectedObject,\
+    load_coco_labels, load_coco_bbox_colors, annotate_image_with_bboxes,\
+    visualize_image
 
 
 class PerfectPedestrianDetectorOperator(Op):
@@ -54,9 +56,14 @@ class PerfectPedestrianDetectorOperator(Op):
 
         # Input retrieved from the various input streams.
         self._lock = threading.Lock()
+        self._rgb_imgs = collections.deque()
         self._depth_imgs = collections.deque()
         self._can_bus_msgs = collections.deque()
         self._pedestrians = collections.deque()
+
+        # Visualization specific information.
+        self._coco_labels = load_coco_labels(self._flags.path_coco_labels)
+        self._bbox_colors = load_coco_bbox_colors(self._coco_labels)
 
     @staticmethod
     def setup_streams(input_streams, output_stream_name):
@@ -71,6 +78,10 @@ class PerfectPedestrianDetectorOperator(Op):
         Returns:
             The stream instance to which the output results are sent.
         """
+        # Register a callback on the camera frames data stream.
+        input_streams.filter(pylot.utils.is_camera_stream).add_callback(
+            PerfectPedestrianDetectorOperator.on_rgb_camera_update)
+
         # Register a callback on the depth frames data stream.
         input_streams.filter(pylot.utils.is_depth_camera_stream).add_callback(
             PerfectPedestrianDetectorOperator.on_depth_camera_update)
@@ -90,6 +101,19 @@ class PerfectPedestrianDetectorOperator(Op):
 
         # Return the stream on which the output will be sent.
         return [pylot.utils.create_obstacles_stream(output_stream_name)]
+
+    def on_rgb_camera_update(self, msg):
+        """ Receives the RGB camera update and adds it to the queue of
+        stored messages.
+
+        Args:
+            msg: The message received for the given timestamp.
+        """
+        self._logger.info(
+            "Received a RGB camera update for the timestamp {}".format(
+                msg.timestamp))
+        with self._lock:
+            self._rgb_imgs.append(msg)
 
     def on_depth_camera_update(self, msg):
         """ Receives the depth camera update and adds it to the queue of
@@ -160,19 +184,21 @@ class PerfectPedestrianDetectorOperator(Op):
         self._logger.info("Received a watermark for the timestamp {}".format(
             msg.timestamp))
         with self._lock:
-            if not self.synchronize_msg_buffers(
-                    msg.timestamp,
-                [self._depth_imgs, self._can_bus_msgs, self._pedestrians]):
+            if not self.synchronize_msg_buffers(msg.timestamp, [
+                    self._rgb_imgs, self._depth_imgs, self._can_bus_msgs,
+                    self._pedestrians
+            ]):
                 self._logger.info("Could not synchronize the message buffers "
                                   "for the timestamp {}".format(msg.timestamp))
 
+            rgb_msg = self._rgb_imgs.popleft()
             depth_msg = self._depth_imgs.popleft()
             can_bus_msg = self._can_bus_msgs.popleft()
             pedestrian_msg = self._pedestrians.popleft()
 
         # Assert that the timestamp of all the messages are the same.
-        assert (depth_msg.timestamp == can_bus_msg.timestamp ==
-                pedestrian_msg.timestamp)
+        assert (rgb_msg.timestamp == depth_msg.timestamp == \
+                can_bus_msg.timestamp == pedestrian_msg.timestamp)
 
         self._logger.info(
             "Depth Message: {}, Can Bus Message: {}, Pedestrian Message: {}".
@@ -184,6 +210,10 @@ class PerfectPedestrianDetectorOperator(Op):
             depth_msg.frame)
         self._logger.info("Detected a total of {} pedestrians: {}".format(
             len(detected_pedestrians), detected_pedestrians))
+        if self._flags.visualize_detector_output:
+            annotate_image_with_bboxes(msg.timestamp, rgb_msg.frame,
+                                       detected_pedestrians, self._bbox_colors)
+            visualize_image(self.name, rgb_msg.frame)
         output_message = DetectorMessage(detected_pedestrians, 0,
                                          msg.timestamp)
         self.get_output_stream(self._output_stream_name).send(output_message)
@@ -210,7 +240,7 @@ class PerfectPedestrianDetectorOperator(Op):
                                            self._camera_intrinsic,
                                            self._camera_img_size, 1.5, 3.0)
             if bbox is not None:
-                det_objs.append(DetectedObject(bbox, 1.0, 'pedestrian'))
+                det_objs.append(DetectedObject(bbox, 1.0, 'person'))
         return det_objs
 
     def execute(self):

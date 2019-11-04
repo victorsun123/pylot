@@ -242,8 +242,9 @@ def main(args):
             # Add a perfect pedestrian detector operator.
             object_detector_operator = add_perfect_pedestrian_detector_operator(
                 graph, rgb_camera.camera_setup, perception_output_stream)
-            graph.connect([carla_operator, depth_camera.instance],
-                          [object_detector_operator])
+            graph.connect(
+                [carla_operator, depth_camera.instance, rgb_camera.instance],
+                [object_detector_operator])
         else:
             # Add the model-based perception operator.
             object_detector_operator = add_model_perception_operator(
