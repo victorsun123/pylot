@@ -254,7 +254,7 @@ def main(args):
 
         # Add a perfect planning operator.
         perfect_planning_operator = add_planning_operator(
-            graph, carla.Location(x=17.73, y=327.07, z=0.5), FLAGS.plan,
+            graph, carla.Location(x=17.73 + 320, y=327.07, z=0.5), FLAGS.plan,
             FLAGS.model_path, FLAGS.target_speed)
         graph.connect([carla_operator, object_detector_operator],
                       [perfect_planning_operator])

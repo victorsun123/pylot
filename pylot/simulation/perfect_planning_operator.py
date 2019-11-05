@@ -194,7 +194,8 @@ class PerfectPlanningOperator(Op):
                 can_bus_msg.data.forward_speed))
 
         # Heuristic to tell us how far away do we detect the pedestrian.
-        ego_location = to_carla_location(can_bus_msg.data.transform.location)
+        ego_transform = to_carla_transform(can_bus_msg.data.transform)
+        ego_location = ego_transform.location
         ego_wp = self._map.get_waypoint(ego_location)
         for pedestrian in pedestrian_msg.pedestrians:
             pedestrian_loc = to_carla_location(pedestrian.transform.location)
@@ -214,6 +215,7 @@ class PerfectPlanningOperator(Op):
         # waypoint.
         if self._goal_reached or ego_location.distance(
                 self._goal) <= self.GOAL_DISTANCE:
+            print("The distance was {} and we reached the goal.".format(ego_location.distance(self._goal)))
             self.get_output_stream('control_stream').send(
                 ControlMessage(0.0, 0.0, 1.0, True, False, msg.timestamp))
             self._goal_reached = True
@@ -235,8 +237,11 @@ class PerfectPlanningOperator(Op):
                 return
 
             # Get the waypoint that is SAMPLING_DISTANCE away.
-            wp_steer = self._map.get_waypoint(ego_location - carla.Location(
-                x=self.SAMPLING_DISTANCE))
+            sample_distance = self.SAMPLING_DISTANCE if\
+                    ego_transform.get_forward_vector().x > 0 else \
+                    -1 * self.SAMPLING_DISTANCE
+            wp_steer = self._map.get_waypoint(ego_location + carla.Location(
+                x=sample_distance))
 
             in_swerve = False
             if pedestrian_detected:
