@@ -76,6 +76,7 @@ class DetectionOperator(Op):
         # The models expect BGR images.
         assert msg.encoding == 'BGR', 'Expects BGR frames'
         image_np = msg.frame
+        print("msg.frame shape ", msg.frame.shape)
         # Expand dimensions since the model expects images to have
         # shape: [1, None, None, 3]
         image_np_expanded = np.expand_dims(image_np, axis=0)
