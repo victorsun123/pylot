@@ -266,7 +266,6 @@ class PerfectDetectorOp(Op):
                 depth_array, vehicle_transform, pedestrian.transform,
                 pedestrian.bounding_box, self._bgr_transform,
                 self._bgr_intrinsic, self._bgr_img_size, 1.5, 3.0)
-            import ipdb; idpb.set_trace()
             if bbox is not None:
                 det_objs.append(DetectedObject(bbox, 1.0, 'pedestrian'))
         return det_objs

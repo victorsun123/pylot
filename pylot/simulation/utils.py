@@ -1,6 +1,7 @@
 from collections import namedtuple
 from itertools import combinations
 import math
+import random
 import numpy as np
 from numpy.linalg import inv
 from numpy.matlib import repmat
@@ -717,6 +718,13 @@ def select_max_bbox(ends, img_width, img_height):
     ymax = min(ymax, img_height - 1)
     return (xmin, xmax, ymin, ymax)
 
+def add_noise_3D_bounding_box(bounding_box, sigma=.5):
+    bounding_box.extent.x = bounding_box.extent.x + random.gauss(0,sigma)
+    bounding_box.extent.y = bounding_box.extent.x + random.gauss(0,sigma)
+    bounding_box.extent.z = bounding_box.extent.x + random.gauss(0,sigma)
+    return bounding_box
+
+
 
 def map_ground_bounding_box_to_2D(vehicle_transform,
                                   obj_transform,
@@ -726,6 +734,10 @@ def map_ground_bounding_box_to_2D(vehicle_transform,
                                   rgb_img_size):
     (image_width, image_height) = rgb_img_size
     extrinsic_mat = vehicle_transform * rgb_transform
+    print("bounding_box type ", type(bounding_box))
+    print("bounding_box.extent type ", type(bounding_box.extent))
+    print("x, y, z ", bounding_box.extent.x,bounding_box.extent.y,bounding_box.extent.z)
+
 
     # 8 bounding box vertices relative to (0,0,0)
     bbox = np.array([

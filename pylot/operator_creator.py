@@ -310,6 +310,20 @@ def create_record_carla_op(graph):
         setup_args={'filter': input_names})
     return record_carla_op
 
+def create_noisy_3D_detector_ops(graph, bgr_camera_setup, output_stream_name):
+     from pylot.simulation.perfect_3D_detector_operator import PerfectDetector3dOp
+     noisy_3D_detector_op = graph.add(
+        PerfectDetector3dOp
+        name='perfect_detector_3D',
+        init_args={'bgr_camera_setup': bgr_camera_setup,
+                   'output_stream_name': output_stream_name,
+                   'flags': FLAGS,
+                   'log_file_name': FLAGS.log_file_name,
+                   'csv_file_name': FLAGS.csv_log_file_name},
+        setup_args={'output_stream_name': output_stream_name})
+     return noisy_3D_detector_op
+
+
 
 def create_perfect_detector_op(graph, bgr_camera_setup, output_stream_name):
     from pylot.simulation.perfect_detector_operator import PerfectDetectorOp

@@ -29,6 +29,10 @@ flags.DEFINE_string('segmentation_dla_model_path',
                     'Path to the model')
 flags.DEFINE_bool('obj_detection', False,
                   'True to enable object detection operator')
+flags.DEFINE_bool('obj_detection_3D', False,
+                  'True to enable object 3D detection operator')
+flags.DEFINE_bool('obj_detection_noise', False,
+                  'True to enable noise for 3D object detection')
 flags.DEFINE_bool('detector_ssd_mobilenet_v1', False,
                   'True to enable SSD mobilenet v1 detector')
 flags.DEFINE_string(

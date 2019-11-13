@@ -122,8 +122,13 @@ def add_ground_eval_ops(graph, perfect_det_ops, camera_ops):
 
 def add_detection_component(graph, bgr_camera_setup, camera_ops, carla_op):
     obj_detector_ops = []
+    if FLAGS.obj_detection_3D:
+        obj_detector_ops = pylot.operator_creator.create_noisy_3D_detector_ops(graph)
+        graph.connect([carla_op] + camera_ops, [perfect_det_op])
+
+
     if FLAGS.obj_detection:
-        obj_detector_ops = pylot.operator_creator.create_detector_ops(graph)
+        obj_detector_ops = pylot.operator_creator.create_detector_ops(graph, '_noisy_3D_detector')
         graph.connect(camera_ops, obj_detector_ops)
 
         if FLAGS.evaluate_obj_detection:
