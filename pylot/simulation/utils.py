@@ -726,7 +726,9 @@ def map_ground_bounding_box_to_2D(vehicle_transform,
                                   rgb_img_size):
     (image_width, image_height) = rgb_img_size
     extrinsic_mat = vehicle_transform * rgb_transform
-
+    print("bounding_box type ", type(bounding_box))
+    print("bounding_box.extent type ", type(bounding_box.extent))
+    print("x, y, z ", bounding_box.extent.x,bounding_box.extent.y,bounding_box.extent.z)
     # 8 bounding box vertices relative to (0,0,0)
     bbox = np.array([
         [  bounding_box.extent.x,   bounding_box.extent.y,   bounding_box.extent.z],
