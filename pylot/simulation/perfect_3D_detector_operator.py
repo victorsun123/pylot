@@ -159,10 +159,7 @@ class PerfectDetector3dOp(PerfectDetectorOp):
             return
         depth_array = depth_msg.frame
         vehicle_transform = can_bus_msg.data.transform
-
-        if self._flags.obj_detection_noise:
-            ped
-
+            
         det_ped = self.__get_pedestrians(
             pedestrians_msg.pedestrians, vehicle_transform, depth_array)
 
@@ -205,6 +202,7 @@ class PerfectDetector3dOp(PerfectDetectorOp):
 
         if (self._flags.visualize_ground_obstacles or
             self._flags.log_detector_output):
+
             annotate_image_with_bboxes(
                 bgr_msg.timestamp, bgr_msg.frame, det_objs)
             if self._flags.visualize_ground_obstacles:
