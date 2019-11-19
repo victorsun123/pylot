@@ -21,6 +21,55 @@ class PerfectDetector3dOp(PerfectDetectorOp):
     perfect bounding boxes in 3D, built off 2D perfect detector
 
     """
+    def __init__(self, name, output_stream_name, bgr_camera_setup, \
+            flags,log_file_name=None, csv_file_name=None):
+        print("using 3d")
+        super(PerfectDetector3dOp,self).__init__(name,output_stream_name, bgr_camera_setup,flags,log_file_name, csv_file_name)
+        print("finished init")
+
+        @staticmethod
+    def setup_streams(input_streams, output_stream_name):
+        # Register a callback on depth frames data stream.
+        input_streams.filter(pylot.utils.is_depth_camera_stream).add_callback(
+            PerfectDetectorOp.on_depth_camera_update)
+        # Register a callback on BGR frames data stream.
+        input_streams.filter(pylot.utils.is_center_camera_stream).add_callback(
+            PerfectDetectorOp.on_bgr_camera_update)
+        # Register a callback on segmented frames data stream.
+        input_streams.filter(
+            pylot.utils.is_segmented_camera_stream).add_callback(
+                PerfectDetectorOp.on_segmented_frame)
+        # Register a callback on can bus messages data stream.
+        input_streams.filter(
+            pylot.utils.is_can_bus_stream).add_callback(
+                PerfectDetectorOp.on_can_bus_update)
+        # Register a callback to receive pedestrian updates from Carla.
+        input_streams.filter(
+            pylot.utils.is_ground_pedestrians_stream).add_callback(
+                PerfectDetectorOp.on_pedestrians_update)
+        # Register a callback to receive vehicle updates from Carla.
+        input_streams.filter(
+            pylot.utils.is_ground_vehicles_stream).add_callback(
+                PerfectDetectorOp.on_vehicles_update)
+        # Register a completion watermark callback. The callback is invoked
+        # after all the messages with a given timestamp have been received.
+        input_streams.add_completion_callback(
+            PerfectDetector3dOp.on_notification)
+        # Register a callback on traffic lights data stream.
+        input_streams.filter(
+            pylot.utils.is_ground_traffic_lights_stream).add_callback(
+                PerfectDetectorOp.on_traffic_light_update)
+        # Register a callback on speed limits data stream.
+        input_streams.filter(
+            pylot.utils.is_ground_speed_limit_signs_stream).add_callback(
+                PerfectDetectorOp.on_speed_limit_signs_update)
+        # Register a callback on stop signs data stream.
+        input_streams.filter(
+            pylot.utils.is_ground_stop_signs_stream).add_callback(
+                PerfectDetectorOp.on_stop_signs_update)
+        # Stream on which to output bounding boxes.
+        return [pylot.utils.create_obstacles_stream(output_stream_name)]
+
     def __get_pedestrians(self, pedestrians, vehicle_transform, depth_array):
         """ Transforms pedestrians into detected objects.
         Args:
@@ -54,7 +103,10 @@ class PerfectDetector3dOp(PerfectDetectorOp):
         for vehicle in vehicles:
             bounding_box = vehicle.bounding_box
             if self._flags.obj_detection_noise:
+                print("before", bounding_box.extent.x)
                 bounding_box = add_noise_3D_bounding_box(bounding_box)
+                print("after", bounding_box.extent.x)
+
             bbox = get_2d_bbox_from_3d_box(
                 depth_array, vehicle_transform, vehicle.transform,
                 bounding_box, self._bgr_transform, self._bgr_intrinsic,
@@ -65,6 +117,7 @@ class PerfectDetector3dOp(PerfectDetectorOp):
 
     def on_notification(self, msg):
         # Pop the oldest message from each buffer.
+        print("3D update")
         with self._lock:
             if not self.synchronize_msg_buffers(
                     msg.timestamp,
@@ -160,4 +213,4 @@ class PerfectDetector3dOp(PerfectDetectorOp):
                 save_image(pylot.utils.bgr_to_rgb(bgr_msg.frame),
                            bgr_msg.timestamp,
                            self._flags.data_path,
-                           'perfect-detector')
+                           'perfect-detector-3D')
