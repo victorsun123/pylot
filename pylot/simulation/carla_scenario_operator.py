@@ -49,6 +49,7 @@ class CarlaScenarioOperator(Op):
         self._logger.info("The ego vehicle with the identifier {} "
                           "was retrieved from the simulation.".format(
                               self._ego_vehicle.id))
+        self.save_file = "/home/erdos/workspace/pylot/log/%s.txt" % time.strftime("%Y%m%d-%H%M%S")
 
     @staticmethod
     def setup_streams(input_streams):
@@ -89,6 +90,16 @@ class CarlaScenarioOperator(Op):
                                            hand_brake=msg.hand_brake,
                                            reverse=msg.reverse)
         self._ego_vehicle.apply_control(vec_control)
+        transform=self._ego_vehicle.get_transform()
+        x = transform.location.x
+        y = transform.location.y
+        vel = self._ego_vehicle.get_velocity()
+        yaw = transform.rotation.yaw
+        accel = self._ego_vehicle.get_acceleration()
+        steer = msg.steer
+
+        with open(self.save_file, "a") as file:
+            file.write("%f\t%f\t%f\t%f\t%f\t%f " % (x,y,vel, yaw, accel, steer))
         self._world.tick()
 
     def __publish_hero_vehicle_data(self, vehicle, timestamp, watermark_msg):
