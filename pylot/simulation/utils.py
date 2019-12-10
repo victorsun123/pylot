@@ -1558,3 +1558,29 @@ def kalman_step(y, A, B, c, D, e, u, Q, R, init_x, init_V):
     Vfilt = (np.eye(K.shape[0]) - K.dot(D)).dot(Vpred)
 
     return xfilt,Vfilt
+
+def __rad2steer(self, rad):
+    """
+    Converts radians to steer input.
+
+    :return: float [-1.0, 1.0]
+    """
+    steer = self._flags.steer_gain * rad
+    if steer > 0:
+        steer = min(steer, 1)
+    else:
+        steer = max(steer, -1)
+    return steer
+
+def __steer2rad(self, steer):
+    """
+    Converts radians to steer input. Assumes max steering angle is -45, 45 degrees
+
+    :return: float [-1.0, 1.0]
+    """
+    rad = steer / self._flags.steer_gain
+    if rad > 0:
+        rad = min(rad, np.pi/2)
+    else:
+        rad = max(rad, -np.pi/2)
+    return rad

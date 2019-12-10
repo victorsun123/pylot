@@ -147,14 +147,14 @@ class MPCAgentOperator(Op):
         self.get_output_stream('control_stream').send(control_msg)
         
         vel_gt = vehicle_speed
-        yaw_gt = vehicle_transform.rotation.yaw
+        yaw_gt = np.radians(vehicle_transform.rotation.yaw)
         x_gt = vehicle_transform.location.x
         y_gt = vehicle_transform.location.y
         timestamp = can_bus_msg.timestamp
        
         
         #simulate noise
-        vel = vel_gt + np.random.normal(0,.1)
+        vel = vel_gt + np.random.normal(0,.5)
         yaw = yaw_gt + np.random.normal(0,.1)
         x = x_gt + np.random.normal(0,1)
         y = y_gt + np.random.normal(0,1)
@@ -174,22 +174,23 @@ class MPCAgentOperator(Op):
             # accel = imu_msg.accelerometer
 
             steer = control_msg.steer
+            steer_rad = self.__steer2rad(steer)
 
-            u = np.array([accel,steer])
+            u = np.array([accel,steer_rad])
             Q = np.eye(4) * .1
             R = np.eye(4)
-            R[2] *= .1
+            R[2] *= .5
             R[3] *=.1
 
             # prev_vel = self._init_X[2]
             # prev_yaw = self._init_X[3]
             # prev_steer = self._init_V[1]
-            A,B,c = self.get_transition_matrix( vel, yaw, steer)
+            A,B,c = self.get_transition_matrix(vel, yaw, steer_rad)
             X_filt, V_filt = kalman_step(X_meas, A, B, c, np.eye(*np.shape(X_meas)), 0, u, Q,R,self._init_X,self._init_V)
             self._init_X = X_filt
             self._init_V = V_filt
             
-            A,B,c = self.get_transition_matrix(self.naive_pred[2], self.naive_pred[3], steer)
+            A,B,c = self.get_transition_matrix(self.naive_pred[2], self.naive_pred[3], steer_rad)
             self.naive_pred = A.dot(self.naive_pred) + B.dot(u) + c
             
         
