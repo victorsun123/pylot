@@ -154,7 +154,7 @@ class MPCAgentOperator(Op):
        
         
         #simulate noise
-        vel = vel_gt + np.random.normal(0,.5)
+        vel = vel_gt + np.random.normal(0,1)
         yaw = yaw_gt + np.random.normal(0,.1)
         x = x_gt + np.random.normal(0,1)
         y = y_gt + np.random.normal(0,1)
@@ -179,7 +179,7 @@ class MPCAgentOperator(Op):
             u = np.array([accel,steer_rad])
             Q = np.eye(4) * .1
             R = np.eye(4)
-            R[2] *= .5
+            R[2] *= .1
             R[3] *=.1
 
             # prev_vel = self._init_X[2]
